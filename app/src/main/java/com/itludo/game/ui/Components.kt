@@ -39,7 +39,7 @@ fun DiceComponent(
 
             // Draw Dots based on value
             val radius = size.minDimension / 10
-            val center = size.center
+            val center = Offset(size.width / 2, size.height / 2)
             val left = center.x - size.width / 4
             val right = center.x + size.width / 4
             val top = center.y - size.height / 4
