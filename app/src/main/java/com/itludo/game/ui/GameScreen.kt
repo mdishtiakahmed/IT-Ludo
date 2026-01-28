@@ -59,22 +59,27 @@ fun GameScreen(
                 val targetOffset = calculateTokenOffset(token, cellSize)
                 val animatedOffset by animateOffsetAsState(
                     targetValue = targetOffset,
-                    animationSpec = tween(durationMillis = 500),
+                    // FASTER ANIMATION for walking
+                    animationSpec = tween(durationMillis = 200),
                     label = "token_move"
                 )
                 
-                // Render Token
+                val isPlayable = state.playableTokenIds.contains(token.id)
+                val alpha = if (state.playableTokenIds.isNotEmpty() && !isPlayable) 0.6f else 1f
+                
                 Box(
                     modifier = Modifier
                         .offset(
                             x = with(density) { animatedOffset.x.toDp() },
                             y = with(density) { animatedOffset.y.toDp() }
                         )
-                        .size(cellSize) // Token takes up a cell
+                        .size(cellSize)
+                        .padding(2.dp) // Slight padding so tokens don't touch
                 ) {
                    TokenComponent(
                        token = token, 
                        cellSize = cellSizePx,
+                       isPlayable = isPlayable,
                        onClick = { gameViewModel.onTokenClick(token) }
                    )
                 }
@@ -90,7 +95,28 @@ fun GameScreen(
         )
         
         Spacer(modifier = Modifier.height(10.dp))
-        Text("Current Turn: ${state.currentPlayer.name}")
+        Text(
+            text = "Current Turn: ${state.currentPlayer.name}",
+            style = androidx.compose.material3.MaterialTheme.typography.titleMedium
+        )
+        
+        // Winner Overlay
+        if (state.winner != null) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.Black.copy(alpha = 0.8f))
+                    .clickable { }, // block touches
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = "${state.winner} WINS!",
+                    color = Color.White,
+                    style = androidx.compose.material3.MaterialTheme.typography.displayLarge,
+                    modifier = Modifier.padding(20.dp)
+                )
+            }
+        }
     }
 }
 

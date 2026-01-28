@@ -95,12 +95,27 @@ fun androidx.compose.ui.graphics.drawscope.DrawScope.drawHouse(color: Color, sta
     val sizePx = cellSize * 6
     val offset = Offset(startCol * cellSize, startRow * cellSize)
     
-    // Outer Box
-    drawRect(color = color, topLeft = offset, size = Size(sizePx, sizePx))
+    // Gradient Background
+    val brush = androidx.compose.ui.graphics.Brush.linearGradient(
+        colors = listOf(color.copy(alpha = 0.8f), color),
+        start = offset,
+        end = offset + Offset(sizePx, sizePx)
+    )
     
-    // Inner White Box
+    // Outer Box
+    drawRect(brush = brush, topLeft = offset, size = Size(sizePx, sizePx))
+    
+    // Inner White Box with shadow effect (Border)
     val paddedSize = sizePx * 0.7f
     val padding = (sizePx - paddedSize) / 2
+    
+    // Draw Shadow for inner box
+    drawRect(
+        color = Color.Black.copy(alpha = 0.2f),
+        topLeft = offset + Offset(padding + 4f, padding + 4f),
+        size = Size(paddedSize, paddedSize)
+    )
+    
     drawRect(
         color = Color.White, 
         topLeft = offset + Offset(padding, padding), 
@@ -110,11 +125,9 @@ fun androidx.compose.ui.graphics.drawscope.DrawScope.drawHouse(color: Color, sta
     // 4 Token placeholders (Circles)
     // Relative to Inner Box
     val innerStart = offset + Offset(padding, padding)
-    val circleRadius = cellSize / 2.5f
+    val circleRadius = cellSize / 2.8f // Slightly smaller
     
     // Positions: TopLeft, TopRight, etc.
-    // Roughly at 20% and 80% marks of the white box?
-    // Let's create a 2x2 grid inside the white box.
     val boxCell = paddedSize / 2
     
     val centers = listOf(
@@ -125,8 +138,9 @@ fun androidx.compose.ui.graphics.drawscope.DrawScope.drawHouse(color: Color, sta
     )
     
     centers.forEach { center ->
-        drawCircle(color = color, radius = circleRadius, center = center)
-        drawCircle(color = Color.Black, radius = circleRadius, center = center, style = Stroke(2f))
+        // Ring hole effect
+        drawCircle(color = color.copy(alpha=0.2f), radius = circleRadius, center = center)
+        drawCircle(color = color, radius = circleRadius, center = center, style = Stroke(4f))
     }
 }
 

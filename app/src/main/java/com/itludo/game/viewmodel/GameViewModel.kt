@@ -26,12 +26,16 @@ class GameViewModel : ViewModel() {
 
         viewModelScope.launch {
             isAnimating = true
+            _uiState.update { it.copy(message = "Rolling...") }
+            
             // Animate Dice "Rolling effect"
-            repeat(10) {
+            repeat(12) {
                 _uiState.update { it.copy(diceValue = (1..6).random()) }
-                delay(100)
+                delay(80)
             }
             val finalValue = (1..6).random()
+            // DEBUG: Uncomment to force specific rolls for testing
+            // val finalValue = 6 
             
             _uiState.update { state -> 
                 state.copy(
@@ -42,34 +46,41 @@ class GameViewModel : ViewModel() {
                 )
             }
             
-            checkAutoTurnPass(finalValue)
-            isAnimating = false
-        }
-    }
-    
-    private fun checkAutoTurnPass(diceVal: Int) {
-        val state = _uiState.value
-        val playerTokens = state.tokens.filter { it.player == state.currentPlayer }
-        
-        // Check moves
-        val canMove = playerTokens.any { token ->
-            canMoveToken(token, diceVal)
-        }
-        
-        if (!canMove) {
-            viewModelScope.launch {
-                _uiState.update { it.copy(message = "No moves! Passing turn...") }
+            // Calculate valid moves immediately after roll
+            val playableIds = calculatePlayableTokens(finalValue)
+            _uiState.update { it.copy(playableTokenIds = playableIds) }
+            
+            if (playableIds.isEmpty()) {
+                delay(1000)
+                _uiState.update { it.copy(message = "No moves possible!", playableTokenIds = emptyList()) }
                 delay(1000)
                 nextTurn()
+            } else {
+                // If only one move is possible and it's not a decision (rare in Ludo, usually you pick), 
+                // we could auto-move, but Ludo usually requires user tap even if 1 option.
+                 _uiState.update { it.copy(message = "Select a token to move") }
+                 isAnimating = false // User input needed
             }
         }
+    }
+
+    private fun calculatePlayableTokens(diceVal: Int): List<Int> {
+        val state = _uiState.value
+        return state.tokens.filter { token ->
+            token.player == state.currentPlayer && canMoveToken(token, diceVal)
+        }.map { it.id }
     }
 
     private fun canMoveToken(token: Token, diceVal: Int): Boolean {
         if (token.completed) return false
         if (token.state == TokenState.BASE) return diceVal == 6
-        // Check overflow home
-        if (token.position + diceVal > 56) return false
+        // Check overflow home. Max steps = 56 (Home)
+        // Position 0..56.
+        // If current pos + dice > 56, cannot move.
+        // Note: Position -1 is BASE.
+        if (token.state == TokenState.ACTIVE) {
+            if (token.position + diceVal > 56) return false
+        }
         return true
     }
 
@@ -77,81 +88,134 @@ class GameViewModel : ViewModel() {
         if (isAnimating) return
         val state = _uiState.value
         if (state.isRollAllowed) return // Must roll first
-        if (token.player != state.currentPlayer) return
         
-        val diceVal = state.lastRolledValue
-        if (!canMoveToken(token, diceVal)) return
+        // Validation: Is this token in the playable list?
+        if (!state.playableTokenIds.contains(token.id)) return
 
-        moveToken(token, diceVal)
+        moveToken(token, state.lastRolledValue)
     }
 
-    private fun moveToken(token: Token, steps: Int) {
+    private fun moveToken(token: Token, totalSteps: Int) {
         viewModelScope.launch {
             isAnimating = true
+            _uiState.update { it.copy(playableTokenIds = emptyList()) } // Clear highlights
             
-            // Logic to update position
-            val oldPos = token.position
-            var newPos = oldPos
-            var newState = token.state
+            // STEP-BY-STEP MOVEMENT ANIMATION
+            var currentPos = token.position
+            var currentState = token.state
             
-            if (token.state == TokenState.BASE) {
-                if (steps == 6) {
-                    newPos = 0
-                    newState = TokenState.ACTIVE
+            // 1. Handle Base Exit rule separately (First step)
+            var stepsRemaining = totalSteps
+            
+            if (currentState == TokenState.BASE) {
+                // Exit Base
+                currentState = TokenState.ACTIVE
+                currentPos = 0 // Start point
+                updateTokenState(token.id, currentPos, currentState, false)
+                delay(250) // Initial hop out
+                stepsRemaining = 0 // 6 just brings it out to start, usually doesn't give +6 moves unless house rules. 
+                                   // Standard rule: 6 opens the token to Start Cell. It does NOT move 6 extra steps immediately.
+                                   // "Token opens only on rolling a 6." -> Placed at start.
+                                   // Wait, usually rolling 6 gives another turn.
+                                   // So if I roll 6:
+                                   // Option A: Move Active Token 6 steps.
+                                   // Option B: Open Base Token to Start.
+                                   // We are doing B here.
+            } else {
+                // Walk the steps
+                repeat(stepsRemaining) {
+                    currentPos++
+                    updateTokenState(token.id, currentPos, currentState, false)
+                    // Play sound effect hook here if we had one
+                    delay(250) // Step delay
                 }
-            } else {
-                newPos += steps
             }
             
-            // Winning Condition check
-            val isCompleted = newPos == 56 // Center / Home
+            // Check Completion
+            val isCompleted = currentPos == 56
             if (isCompleted) {
-                newState = TokenState.HOME
+                currentState = TokenState.HOME
+                updateTokenState(token.id, currentPos, currentState, isCompleted)
+                // Celebrate!
+                _uiState.update { it.copy(message = "HOME!") }
+                delay(500)
             }
 
-            // Update the single token in the list
-            // We need to first update state so UI reflects move
-            var currentTokens = _uiState.value.tokens.map { 
-                if (it.id == token.id) it.copy(position = newPos, state = newState, completed = isCompleted) else it
+            // Killing Logic check (Only at final destination)
+            if (currentState == TokenState.ACTIVE && !isCompleted) {
+                 handleCollisions(token.player, currentPos)
             }
-            
-            // KILLING LOGIC
-            val finalTokens = handleCollisions(currentTokens, token.player, newPos)
-            
-            _uiState.update { it.copy(tokens = finalTokens) }
+             
+            // Check Win Condition (All 4 tokens home)
+            val playerTokens = _uiState.value.tokens.filter { it.player == token.player }
+            if (playerTokens.all { it.completed }) {
+                _uiState.update { it.copy(winner = token.player, message = "${token.player} WINS!") }
+                isAnimating = false
+                return@launch
+            }
 
-            // Determine next turn
-            // Bonus rule: Roll 6 gives extra turn.
-            if (steps == 6) {
-                 _uiState.update { it.copy(isRollAllowed = true, message = "Bonus Roll!") }
+            // Next Turn Logic
+            // Bonus: 6 gives extra turn. Killing gives extra turn (Optional, let's keep it simple: 6 only).
+            // Also if we just opened a token (6), we get extra turn.
+            if (totalSteps == 6) {
+                 _uiState.update { it.copy(
+                     isRollAllowed = true, 
+                     message = "${token.player} Bonus Roll!",
+                     diceValue = 0 // Reset visual
+                 ) }
             } else {
-                // Determine if we still have moves? No, std ludo one move per roll.
                 nextTurn()
             }
             
             isAnimating = false
         }
     }
+
+    private fun updateTokenState(tokenId: Int, newPos: Int, newState: TokenState, completed: Boolean) {
+        _uiState.update { state ->
+            val newTokens = state.tokens.map { 
+                if (it.id == tokenId) it.copy(position = newPos, state = newState, completed = completed) else it
+            }
+            state.copy(tokens = newTokens)
+        }
+    }
     
-    private fun handleCollisions(allTokens: List<Token>, currentPlayer: Player, playerLogPos: Int): List<Token> {
-        if (playerLogPos < 0 || playerLogPos > 55) return allTokens
+    private fun handleCollisions(currentPlayer: Player, gridPos: Int) {
+        // Find collisions at this LOGICAL position? 
+        // No, we must map to GRID position, because different players share grid cells at different logical indices.
+        // Except for Home Stretch where they act distinct?
+        // Actually, BoardUtils collision check relies on Grid Coords.
         
-        val (gridX, gridY) = BoardUtils.getCoordinates(currentPlayer, playerLogPos)
+        val (gridX, gridY) = BoardUtils.getCoordinates(currentPlayer, gridPos)
         
-        if (BoardUtils.isSafeSquare(gridX, gridY)) return allTokens
+        if (BoardUtils.isSafeSquare(gridX, gridY)) return
+
+        val state = _uiState.value
+        var killedAny = false
         
-        return allTokens.map { target ->
+        val newTokens = state.tokens.map { target ->
             if (target.player != currentPlayer && target.state == TokenState.ACTIVE) {
-                val (tX, tY) = BoardUtils.getCoordinates(target.player, target.position)
-                if (tX == gridX && tY == gridY) {
-                    // KILL!
-                    target.copy(position = -1, state = TokenState.BASE)
-                } else {
-                    target
-                }
+                 val (tX, tY) = BoardUtils.getCoordinates(target.player, target.position)
+                 if (tX == gridX && tY == gridY) {
+                     // KILL
+                     killedAny = true
+                     target.copy(position = -1, state = TokenState.BASE)
+                 } else {
+                     target
+                 }
             } else {
                 target
             }
+        }
+        
+        if (killedAny) {
+            _uiState.update { it.copy(tokens = newTokens, message = "CRUSHED!") }
+            // If we want bonus turn on kill:
+            // forceBonusTurn = true
+        } else {
+            // just update? We already updated main token.
+            // But we might have modified *other* tokens.
+            _uiState.update { it.copy(tokens = newTokens) }
         }
     }
 
@@ -166,7 +230,9 @@ class GameViewModel : ViewModel() {
             state.copy(
                 currentPlayer = nextPlayer,
                 isRollAllowed = true,
-                message = "${nextPlayer.name}'s Turn"
+                message = "${nextPlayer.name}'s Turn",
+                diceValue = 0,
+                playableTokenIds = emptyList()
             )
         }
     }

@@ -76,43 +76,61 @@ fun DiceComponent(
 fun TokenComponent(
     token: Token,
     cellSize: Float,
+    isPlayable: Boolean = false,
     onClick: () -> Unit
 ) {
-    // We don't draw position here, we draw the shape. 
-    // Position handling is done by parent with animateOffset.
-    // This is just the visual representation of the Guti.
-    
-    Canvas(modifier = Modifier.size(24.dp).clickable { onClick() }) { // Fixed size for touch target, scaling happens in draw
+    Canvas(modifier = Modifier.size(24.dp).clickable { onClick() }) {
         val colorVal = token.player.color
-        val color = Color(colorVal)
-        
-        // Draw Shadow
+        val baseColor = Color(colorVal)
+        val center = Offset(size.width / 2, size.height / 2)
+
+        // Selection Halo (if playable)
+        if (isPlayable) {
+            drawCircle(
+                color = Color.White.copy(alpha = 0.5f),
+                radius = size.minDimension / 1.5f,
+                center = center,
+                style = Stroke(width = 4f)
+            )
+             drawCircle(
+                color = baseColor.copy(alpha = 0.3f),
+                radius = size.minDimension / 1.5f,
+                center = center
+            )
+        }
+
+        // Shadow
         drawCircle(
-            color = Color.Black.copy(alpha = 0.3f),
+            color = Color.Black.copy(alpha = 0.4f),
             radius = size.minDimension / 2.2f,
             center = center + Offset(4f, 4f)
         )
-        
-        // Draw Main Body
+
+        // 3D SPHERE EFFECT using Radial Gradient
+        // Highlight (White) -> Main Color -> Darker Shadow at edges
+        val brush = androidx.compose.ui.graphics.Brush.radialGradient(
+            colors = listOf(
+                Color.White, // Specular Highlight
+                baseColor,   // Main body
+                baseColor.copy(alpha = 0.8f),
+                Color.Black.copy(alpha = 0.6f) // Dark edge
+            ),
+            center = center - Offset(size.minDimension / 6, size.minDimension / 6),
+            radius = size.minDimension / 1.5f
+        )
+
         drawCircle(
-            color = color,
+            brush = brush,
             radius = size.minDimension / 2.2f,
             center = center
         )
-        
-        // Draw Inner Highlight (Bevel effect)
+
+        // Crisp outline
         drawCircle(
-            color = Color.White.copy(alpha = 0.4f),
-            radius = size.minDimension / 4f,
-            center = center - Offset(2f, 2f)
-        )
-        
-        // Stroke
-        drawCircle(
-            color = Color.Black,
+            color = Color.Black.copy(alpha = 0.2f),
             radius = size.minDimension / 2.2f,
             center = center,
-            style = Stroke(width = 2f)
+            style = Stroke(width = 1f)
         )
     }
 }

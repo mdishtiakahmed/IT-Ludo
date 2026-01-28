@@ -28,7 +28,8 @@ data class GameState(
     val isRollAllowed: Boolean,
     val winner: Player? = null,
     val lastRolledValue: Int = 0, // For display
-    val message: String = "Roll the Dice!"
+    val message: String = "Roll the Dice!",
+    val playableTokenIds: List<Int> = emptyList()
 ) {
     companion object {
         fun initial(): GameState {
