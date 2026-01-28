@@ -3,7 +3,8 @@ package com.itludo.game.ui
 import androidx.compose.animation.core.animateOffsetAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.clickable
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.material3.Button
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
@@ -202,10 +203,7 @@ fun renderToken(
     }
 }
 
-// Helper for modifier alpha which isn't standard in Modifier by default without import? 
-// It is standard: androidx.compose.ui.draw.alpha
-fun Modifier.alpha(alpha: Float) = this.then(Modifier.graphicsLayer(alpha = alpha))
-import androidx.compose.ui.graphics.graphicsLayer
+// Helper for modifier alpha
 
 @Composable
 fun calculateTokenOffset(token: Token, cellSize: Dp): Offset {
