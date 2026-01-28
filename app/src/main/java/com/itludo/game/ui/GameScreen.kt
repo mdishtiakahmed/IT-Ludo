@@ -3,7 +3,8 @@ package com.itludo.game.ui
 import androidx.compose.animation.core.animateOffsetAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.*
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.material3.Button
 import androidx.compose.material3.Text
@@ -115,8 +116,8 @@ fun GameScreen(
                         }
                         else -> { // 4 or more
                             // 2x2 Grid
-                            val col = index % 2
-                            val row = index / 2
+                            val col = (index % 2).toFloat()
+                            val row = (index / 2).toFloat()
                             Offset(
                                 (col - 0.5f) * shift * 1.5f,
                                 (row - 0.5f) * shift * 1.5f
@@ -203,7 +204,7 @@ fun renderToken(
     }
 }
 
-// Helper for modifier alpha
+
 
 @Composable
 fun calculateTokenOffset(token: Token, cellSize: Dp): Offset {
