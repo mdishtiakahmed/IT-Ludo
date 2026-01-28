@@ -55,11 +55,19 @@ class GameViewModel : ViewModel() {
                 _uiState.update { it.copy(message = "No moves possible!", playableTokenIds = emptyList()) }
                 delay(1000)
                 nextTurn()
+            } else if (playableIds.size == 1 && finalValue != 6) {
+                // AUTO MOVE only if not a 6 (because 6 usually implies choice of opening vs moving)
+                _uiState.update { it.copy(message = "Auto Moving...") }
+                delay(500)
+                val tokenId = playableIds.first()
+                val token = _uiState.value.tokens.find { it.id == tokenId }
+                if (token != null) {
+                    onTokenClick(token)
+                }
             } else {
-                // If only one move is possible and it's not a decision (rare in Ludo, usually you pick), 
-                // we could auto-move, but Ludo usually requires user tap even if 1 option.
+                // User Choice required
                  _uiState.update { it.copy(message = "Select a token to move") }
-                 isAnimating = false // User input needed
+                 isAnimating = false 
             }
         }
     }

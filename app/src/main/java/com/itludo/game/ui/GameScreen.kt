@@ -32,7 +32,11 @@ fun GameScreen(
         verticalArrangement = Arrangement.Center
     ) {
         // Status Bar
-        Text(text = state.message, modifier = Modifier.padding(16.dp))
+        Text(
+            text = state.message, 
+            modifier = Modifier.padding(16.dp),
+            style = androidx.compose.material3.MaterialTheme.typography.headlineSmall
+        )
         
         // Game Board Area
         BoxWithConstraints(
@@ -48,40 +52,78 @@ fun GameScreen(
             // 1. Draw Board
             LudoBoardCanvas(modifier = Modifier.fillMaxSize())
             
-            // 2. Draw Tokens
-            // We overlay tokens based on their positions.
-            // Using Box with offset? Or Canvas?
-            // Using Box with offset allows easier click handling.
+            // 2. Draw Tokens with SMART GROUPING
+            // We need to group tokens that are at the exact same logical position.
+            // Note: Different players have different Logical Indices for the same physical cell.
+            // But we display them based on PHYSICAL coords.
+            // So we must Group by (GridX, GridY).
             
-            // We need to map Token.position to Offset(x, y) relative to Board TopLeft.
-            
-            state.tokens.forEach { token ->
-                val targetOffset = calculateTokenOffset(token, cellSize)
-                val animatedOffset by animateOffsetAsState(
-                    targetValue = targetOffset,
-                    // FASTER ANIMATION for walking
-                    animationSpec = tween(durationMillis = 200),
-                    label = "token_move"
-                )
+            // Map: Pair<GridX, GridY> -> List<Token>
+            val tokenGroups = state.tokens.groupBy { token ->
+                if (token.position == -1) {
+                    // Base tokens handle themselves via getBaseSlotOps
+                    // Unique key for base slots?
+                    // Actually calculating raw offset for base is fine, they have fixed slots.
+                    // Let's use a special key for grouping or just handle active ones.
+                    // Base tokens (-1) have distinct visual slots (indices 0-3), so they never visually overlap.
+                    // We only care about Path Overlaps.
+                    Pair(-1 * token.player.ordinal, token.id) // Unique key to not group base tokens
+                } else {
+                    BoardUtils.getCoordinates(token.player, token.position)
+                }
+            }
+
+            tokenGroups.forEach { (key, tokensInCell) ->
+                // If Base Tokens (key.first < 0), render normally
+                if (key.first < 0) {
+                     tokensInCell.forEach { token ->
+                        renderToken(token, state, cellSize, cellSizePx, Offset.Zero, density, gameViewModel)
+                     }
+                     return@forEach
+                }
+
+                // Path Tokens: Calculate sub-cell offsets
+                val count = tokensInCell.size
                 
-                val isPlayable = state.playableTokenIds.contains(token.id)
-                val alpha = if (state.playableTokenIds.isNotEmpty() && !isPlayable) 0.6f else 1f
-                
-                Box(
-                    modifier = Modifier
-                        .offset(
-                            x = with(density) { animatedOffset.x.toDp() },
-                            y = with(density) { animatedOffset.y.toDp() }
+                tokensInCell.forEachIndexed { index, token ->
+                    // Calculate Shift
+                    // If 1 token: Center (0,0)
+                    // If 2 tokens: (-Shift, 0), (+Shift, 0)
+                    // If 3 tokens: Triangle
+                    // Token Size is 24.dp. Cell is ~Width/15.
+                    // On 1080px width -> Cell is 72px. Token is ~60px.
+                    // They are tight. We scale token down slightly in grouping?
+                    
+                    val scale = if (count > 1) 0.8f else 1f
+                    val shift = cellSizePx * 0.2f
+                    
+                    val subOffset = when (count) {
+                        1 -> Offset.Zero
+                        2 -> Offset(
+                             if (index == 0) -shift / 2 else shift / 2, 
+                             if (index == 0) -shift / 2 else shift / 2 // Diagonal separation look better
                         )
-                        .size(cellSize)
-                        .padding(2.dp) // Slight padding so tokens don't touch
-                ) {
-                   TokenComponent(
-                       token = token, 
-                       cellSize = cellSizePx,
-                       isPlayable = isPlayable,
-                       onClick = { gameViewModel.onTokenClick(token) }
-                   )
+                        3 -> {
+                             // Triangle
+                             // 0: Top, 1: BottomLeft, 2: BottomRight
+                             when(index) {
+                                 0 -> Offset(0f, -shift * 0.8f)
+                                 1 -> Offset(-shift * 0.8f, shift * 0.6f)
+                                 else -> Offset(shift * 0.8f, shift * 0.6f)
+                             }
+                        }
+                        else -> { // 4 or more
+                            // 2x2 Grid
+                            val col = index % 2
+                            val row = index / 2
+                            Offset(
+                                (col - 0.5f) * shift * 1.5f,
+                                (row - 0.5f) * shift * 1.5f
+                            )
+                        }
+                    }
+                    
+                    renderToken(token, state, cellSize, cellSizePx, subOffset, density, gameViewModel, scale)
                 }
             }
         }
@@ -121,17 +163,58 @@ fun GameScreen(
 }
 
 @Composable
+fun renderToken(
+    token: Token, 
+    state: com.itludo.game.model.GameState, 
+    cellSize: Dp, 
+    cellSizePx: Float, 
+    subOffset: Offset, 
+    density: androidx.compose.ui.unit.Density,
+    viewModel: GameViewModel,
+    scale: Float = 1f
+) {
+    val targetOffset = calculateTokenOffset(token, cellSize)
+    val animatedOffset by animateOffsetAsState(
+        targetValue = targetOffset + subOffset, // Apply smart offset here
+        animationSpec = tween(durationMillis = 200),
+        label = "token_move"
+    )
+    
+    val isPlayable = state.playableTokenIds.contains(token.id)
+    val alpha = if (state.playableTokenIds.isNotEmpty() && !isPlayable) 0.6f else 1f
+    
+    Box(
+        modifier = Modifier
+            .offset(
+                x = with(density) { animatedOffset.x.toDp() },
+                y = with(density) { animatedOffset.y.toDp() }
+            )
+            .size(cellSize * scale) // Scale down if grouped
+            .padding(1.dp)
+            .alpha(alpha)
+    ) {
+       TokenComponent(
+           token = token, 
+           cellSize = cellSizePx * scale,
+           isPlayable = isPlayable,
+           onClick = { viewModel.onTokenClick(token) }
+       )
+    }
+}
+
+// Helper for modifier alpha which isn't standard in Modifier by default without import? 
+// It is standard: androidx.compose.ui.draw.alpha
+fun Modifier.alpha(alpha: Float) = this.then(Modifier.graphicsLayer(alpha = alpha))
+import androidx.compose.ui.graphics.graphicsLayer
+
+@Composable
 fun calculateTokenOffset(token: Token, cellSize: Dp): Offset {
     val density = LocalDensity.current
     val cellSizePx = with(density) { cellSize.toPx() }
     
     // If in BASE, hardcode positions
     if (token.position == -1) {
-        // Map ID to base slot?
-        // Token IDs 0-3 RED, 4-7 GREEN etc.
         val baseIndex = token.id % 4
-        
-        // Base Offsets (Grid indices approx)
         val (baseX, baseY) = when (token.player) {
             Player.RED -> getBaseSlotOps(0, 0, baseIndex)
             Player.GREEN -> getBaseSlotOps(9, 0, baseIndex)
@@ -147,27 +230,11 @@ fun calculateTokenOffset(token: Token, cellSize: Dp): Offset {
 }
 
 fun getBaseSlotOps(houseCol: Int, houseRow: Int, index: Int): Pair<Float, Float> {
-    // TopLeft, TopRight, etc within the house (6x6)
-    // House Inner White Box starts at (houseCol + 1, houseRow + 1)
-    // Size 4x4 roughly.
-    // Centers: 
-    val pad = 0.5f // centering in cell
-    val offX = houseCol + 1 + (if (index % 2 == 0) 1 else 3)
-    val offY = houseRow + 1 + (if (index < 2) 1 else 3)
-    // Wait, let's just align them nicely.
-    // 6x6 house. Inner box 4x4.
-    // 1.5, 1.5 relative to house?
-    // Let's use simple static offsets:
-    // 0: (1.5, 1.5), 1: (4.5, 1.5), 2: (1.5, 4.5), 3: (4.5, 4.5) relative to house start?
-    
-    // Grid indices for token centers
     val startX = houseCol.toFloat()
     val startY = houseRow.toFloat()
     
     val dx = if (index % 2 == 1) 4f else 1.5f 
     val dy = if (index > 1) 4f else 1.5f
-    // Slight adjustment to center in 1.5f cell? 
-    // Yes.
     
-    return Pair(startX + dx - 0.5f, startY + dy - 0.5f) // Adjust for cell top-left
+    return Pair(startX + dx - 0.5f, startY + dy - 0.5f)
 }
